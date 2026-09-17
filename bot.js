@@ -67,7 +67,7 @@ async function getServerPlan(guildId) {
   const cached = serverPlanCache.get(guildId);
   if (cached && Date.now() - cached.time < PLAN_CACHE_TTL) return cached.plan;
   try {
-    const data = await httpPost(PLAN_API, { discordId: guildId });
+    const data = await httpPost(PLAN_API, { discordId: guildId }, true);
     const parsed = JSON.parse(data);
     const plan = parsed.plan || "free";
     serverPlanCache.set(guildId, { plan, time: Date.now() });
@@ -106,13 +106,14 @@ function httpGet(url) {
   });
 }
 
-function httpPost(url, body) {
+function httpPost(url, body, needsAuth = false) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
     const u = new URL(url);
-    const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname, method: "POST",
-      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data), "User-Agent": "OrbitraBot/1.0" },
-    }, (res) => { let d = ""; res.on("data", (c) => { d += c; }); res.on("end", () => resolve(d)); });
+    const headers = { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data), "User-Agent": "OrbitraBot/1.0" };
+    if (needsAuth) headers["Authorization"] = `Bearer ${WEBHOOK_SECRET}`;
+    const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname, method: "POST", headers },
+      (res) => { let d = ""; res.on("data", (c) => { d += c; }); res.on("end", () => resolve(d)); });
     req.on("error", reject); req.write(data); req.end();
   });
 }
@@ -173,7 +174,7 @@ async function callAI(prompt, extras = {}) {
       guildId: extras.guildId || null,
       conversationId: extras.conversationId || null,
       history: extras.history || [],
-    });
+    }, true);
     const parsed = JSON.parse(raw);
     return parsed.content || "AI didn't return a response.";
   } catch (err) { return `AI error: ${err.message}`; }
@@ -181,36 +182,36 @@ async function callAI(prompt, extras = {}) {
 
 async function getHistory(userId, guildId) {
   try {
-    const raw = await httpPost(HISTORY_API, { action: "get", userId, guildId });
+    const raw = await httpPost(HISTORY_API, { action: "get", userId, guildId }, true);
     return JSON.parse(raw).history || [];
   } catch { return []; }
 }
 
 async function addHistory(userId, guildId, message, response) {
-  try { await httpPost(HISTORY_API, { action: "add", userId, guildId, message, response }); } catch {}
+  try { await httpPost(HISTORY_API, { action: "add", userId, guildId, message, response }, true); } catch {}
 }
 
 async function clearHistory(userId, guildId) {
-  try { await httpPost(HISTORY_API, { action: "clear", userId, guildId }); } catch {}
+  try { await httpPost(HISTORY_API, { action: "clear", userId, guildId }, true); } catch {}
 }
 
 async function verifyDiscordUser(discordId) {
   try {
-    const raw = await httpPost(VERIFY_API, { discordId });
+    const raw = await httpPost(VERIFY_API, { discordId }, true);
     return JSON.parse(raw);
   } catch { return { verified: false }; }
 }
 
 async function linkDiscordAccount(discordId, email) {
   try {
-    const raw = await httpPost(VERIFY_API, { action: "link", discordId, email });
+    const raw = await httpPost(VERIFY_API, { action: "link", discordId, email }, true);
     return JSON.parse(raw);
   } catch { return { ok: false, error: "Failed to link." }; }
 }
 
 async function getLinkUrl() {
   try {
-    const raw = await httpPost(LINK_API, {});
+    const raw = await httpPost(LINK_API, {}, true);
     const data = JSON.parse(raw);
     return data.url || null;
   } catch { return null; }
@@ -234,7 +235,7 @@ async function syncStats(guild) {
       boostLevel: guild.premiumTier, messagesPerDay: Math.round(msgs/Math.max(textCh.size,1)),
       name: guild.name, icon: guild.iconURL({dynamic:true,size:256}), banner: guild.bannerURL({size:512}),
     };
-    httpPost(SYNC_API, { discordId: guild.id, stats }).catch(() => {});
+    httpPost(SYNC_API, { discordId: guild.id, stats }, true).catch(() => {});
     return stats;
   } catch { return null; }
 }
