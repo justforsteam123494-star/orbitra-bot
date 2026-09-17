@@ -28,9 +28,11 @@ loadEnv();
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || "1549859635932958851";
 const WEBSITE = "https://orbitra-bot.damarie0417.workers.dev";
-const AI_API = `${WEBSITE}/api/ai/chat`;
+const AI_API = `${WEBSITE}/api/bot/chat`;
 const PLAN_API = `${WEBSITE}/api/bot/plan`;
 const SYNC_API = `${WEBSITE}/api/bot/sync`;
+const HISTORY_API = `${WEBSITE}/api/bot/history`;
+const VERIFY_API = `${WEBSITE}/api/bot/verify`;
 const WEBHOOK_SECRET = process.env.DISCORD_WEBHOOK_SECRET || "orbitra-sync-secret-2024";
 
 if (!TOKEN) { console.error("DISCORD_BOT_TOKEN not found."); process.exit(1); }
@@ -164,10 +166,38 @@ function planDenied(cmd, plan) {
 
 async function callAI(prompt, extras = {}) {
   try {
-    const raw = await httpPost(AI_API, { feature: "discord", serverId: "", message: prompt, extras });
+    const raw = await httpPost(AI_API, {
+      message: prompt,
+      userId: extras.userId || "discord-user",
+      guildId: extras.guildId || null,
+      conversationId: extras.conversationId || null,
+      history: extras.history || [],
+    });
     const parsed = JSON.parse(raw);
-    return parsed.content || parsed.message || "AI didn't return a response.";
+    return parsed.content || "AI didn't return a response.";
   } catch (err) { return `AI error: ${err.message}`; }
+}
+
+async function getHistory(userId, guildId) {
+  try {
+    const raw = await httpPost(HISTORY_API, { action: "get", userId, guildId });
+    return JSON.parse(raw).history || [];
+  } catch { return []; }
+}
+
+async function addHistory(userId, guildId, message, response) {
+  try { await httpPost(HISTORY_API, { action: "add", userId, guildId, message, response }); } catch {}
+}
+
+async function clearHistory(userId, guildId) {
+  try { await httpPost(HISTORY_API, { action: "clear", userId, guildId }); } catch {}
+}
+
+async function verifyDiscordUser(discordId) {
+  try {
+    const raw = await httpPost(VERIFY_API, { discordId });
+    return JSON.parse(raw);
+  } catch { return { verified: false }; }
 }
 
 async function syncStats(guild) {
@@ -293,6 +323,9 @@ const CMD = [
   new SlashCommandBuilder().setName("server-boost").setDescription("Boost leaderboard"),
   new SlashCommandBuilder().setName("plan").setDescription("Check or upgrade your server plan"),
   new SlashCommandBuilder().setName("help-premium").setDescription("Show premium commands and plans"),
+  new SlashCommandBuilder().setName("see-chats").setDescription("View your AI chat history"),
+  new SlashCommandBuilder().setName("clear-chats").setDescription("Clear your AI chat history"),
+  new SlashCommandBuilder().setName("verify").setDescription("Link your Orbitra account to the bot"),
 ];
 
 // ── COMMAND HANDLER ──
@@ -303,6 +336,15 @@ async function handleCommand(interaction) {
   if (!cd.ok) return interaction.reply({ embeds: [em(null,{title:"Cooldown",description:`Try again in ${cd.wait}s.`,color:0xffa500})], ephemeral: true });
 
   incStat(user.id, guild?.id);
+
+  // Commands that require verified account
+  const requiresAuth = ["ai","ai-image","ai-code","ai-translate","ai-summarize","ai-creative","see-chats","clear-chats","orbitra-bump","orbitra-stats","orbitra-link","sync"];
+  if (requiresAuth.includes(commandName)) {
+    const v = await verifyDiscordUser(user.id);
+    if (!v.verified) {
+      return interaction.reply({ embeds: [em(null,{title:"Account Required",description:`You need a free Orbitra account to use this command.\n\nCreate one at: ${WEBSITE}/register\nThen link it with \`/verify\``,color:0xff6b6b,fields:[{name:"Step 1",value:`Create account at ${WEBSITE}/register`,inline:true},{name:"Step 2",value:"Use `/verify` to link",inline:true}]})], ephemeral: true });
+    }
+  }
 
   // Plan check
   const plan = await getServerPlan(guild.id);
@@ -434,11 +476,38 @@ async function handleCommand(interaction) {
         if(commandName==="ai-code")p=`Help me with ${interaction.options.getString("language")} code: ${p}`;
         else if(commandName==="ai-translate")p=`Translate to ${interaction.options.getString("language")}: ${p}`;
         else if(commandName==="ai-creative")p=`Write a ${interaction.options.getString("type")}: ${p}`;
-        const r=await callAI(p,{source:"discord",userId:user.id,guildId:guild?.id});
+        const history = await getHistory(user.id, guild?.id);
+        const r=await callAI(p,{userId:user.id,guildId:guild?.id,history:history.slice(-20)});
+        await addHistory(user.id, guild?.id, p, r);
         const chunks=r.match(/[\s\S]{1,1900}/g)||[r];
-        await interaction.editReply({embeds:[em(null,{title:"Orbitra AI",description:chunks[0],color:0x7c3aed,footer:`Plan: ${(PLANS[plan]||PLANS.free).name}`})]});
+        await interaction.editReply({embeds:[em(null,{title:"Orbitra AI",description:chunks[0],color:0x7c3aed,footer:`Plan: ${(PLANS[plan]||PLANS.free).name} | Chat #${history.length/2+1}`})]});
         for(let i=1;i<chunks.length;i++)await interaction.followUp({embeds:[em(null,{description:chunks[i],color:0x7c3aed})]});
         return;
+      }
+      case "see-chats": {
+        const history = await getHistory(user.id, guild?.id);
+        if (!history.length) return interaction.reply({embeds:[em(null,{title:"Chat History",description:"No chats yet. Start chatting with `/ai`!",color:0x7c3aed})],ephemeral:true});
+        const recent = history.slice(-20);
+        let desc = "";
+        for (let i = 0; i < recent.length; i += 2) {
+          const msg = recent[i];
+          const res = recent[i+1];
+          if (msg && res) {
+            desc += `**You:** ${msg.content.slice(0,80)}${msg.content.length>80?"...":""}\n**AI:** ${res.content.slice(0,80)}${res.content.length>80?"...":""}\n\n`;
+          }
+        }
+        return interaction.reply({embeds:[em(null,{title:"Your AI Chats",description:desc.slice(0,4096)||"No chats found.",color:0x7c3aed,footer:`Total messages: ${history.length} | Use /clear-chats to reset`})],ephemeral:true});
+      }
+      case "clear-chats": {
+        await clearHistory(user.id, guild?.id);
+        return interaction.reply({embeds:[em(null,{title:"Chats Cleared",description:"Your AI chat history has been cleared.",color:0x00ff88})],ephemeral:true});
+      }
+      case "verify": {
+        const v = await verifyDiscordUser(user.id);
+        if (v.verified) {
+          return interaction.reply({embeds:[em(null,{title:"Already Verified",description:`Your Discord account is linked to Orbitra.\n\nPlan: **${v.plan || "free"}**\n\nManage your account: ${WEBSITE}/account`,color:0x00ff88})],ephemeral:true});
+        }
+        return interaction.reply({embeds:[em(null,{title:"Link Your Account",description:`To link your Discord account to Orbitra:\n\n1. Create a free account at ${WEBSITE}/register\n2. Go to ${WEBSITE}/account\n3. Click "Link Discord"\n4. Come back and use \`/verify\` again`,color:0x7c3aed,fields:[{name:"Create Account",value:`${WEBSITE}/register`,inline:true},{name:"Link Discord",value:`${WEBSITE}/account`,inline:true}]})],ephemeral:true});
       }
       // Pro
       case "announce": { if(!member.permissions.has(PermissionFlagsBits.ManageMessages))return interaction.reply({embeds:[em(null,{title:"Error",description:"Need Manage Messages permission.",color:0xff6b6b})],ephemeral:true});const ch=interaction.options.getChannel("channel"),t=interaction.options.getString("title"),m=interaction.options.getString("message"),c=interaction.options.getString("color")||"#7c3aed";await ch.send({embeds:[new EmbedBuilder().setTitle(t).setDescription(m).setColor(parseInt(c.replace("#",""),16)||0x7c3aed).setFooter({text:`Announcement by ${user.tag}`}).setTimestamp()]});return interaction.reply({embeds:[em(null,{title:"Announcement Sent",description:`Sent to <#${ch.id}>`,color:0x00ff88})],ephemeral:true}); }
