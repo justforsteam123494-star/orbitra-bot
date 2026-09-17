@@ -360,11 +360,13 @@ async function handleCommand(interaction) {
   const isSiteAdmin = v.plan === "empire" && v.verified;
   const bypassAll = isSiteOwner || isSiteAdmin;
 
-  // Commands that require verified account (skip for site owner/admin)
-  const requiresAuth = ["ai","ai-image","ai-code","ai-translate","ai-summarize","ai-creative","see-chats","clear-chats","orbitra-bump","orbitra-stats","orbitra-link","sync"];
-  if (requiresAuth.includes(commandName) && !bypassAll) {
+  // Commands that DON'T require a verified account
+  const noAuthRequired = ["ping","help","plan","help-premium","verify","link-discord"];
+  if (!noAuthRequired.includes(commandName) && !bypassAll) {
     if (!v.verified) {
-      return interaction.reply({ embeds: [em(null,{title:"Account Required",description:`You need a free Orbitra account to use this command.\n\nCreate one at: ${WEBSITE}/register\nThen link it with \`/verify\``,color:0xff6b6b,fields:[{name:"Step 1",value:`Create account at ${WEBSITE}/register`,inline:true},{name:"Step 2",value:"Use `/verify` to link",inline:true}]})], ephemeral: true });
+      const linkUrl = await getLinkUrl();
+      const linkField = linkUrl ? [{name:"Link Account",value:`[Click here to link](${linkUrl})`,inline:true}] : [];
+      return interaction.reply({ embeds: [em(null,{title:"Account Required",description:`You need a free Orbitra account to use this command.\n\n1. Create an account at ${WEBSITE}/register\n2. Link your Discord by clicking below\n3. Use \`/verify\` to confirm`,color:0xff6b6b,fields:[{name:"Register",value:`${WEBSITE}/register`,inline:true},{name:"Sign In",value:`${WEBSITE}/login`,inline:true},...linkField]})], ephemeral: true });
     }
   }
 
