@@ -27,7 +27,7 @@ loadEnv();
 
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || "1549859635932958851";
-const WEBSITE = "https://orbitra-bot.damarie0417.workers.dev";
+const WEBSITE = "https://orbitra-bot.fridayy.workers.dev";
 const AI_API = `${WEBSITE}/api/bot/chat`;
 const PLAN_API = `${WEBSITE}/api/bot/plan`;
 const SYNC_API = `${WEBSITE}/api/bot/sync`;
@@ -337,17 +337,27 @@ async function handleCommand(interaction) {
 
   incStat(user.id, guild?.id);
 
-  // Commands that require verified account
+  // Check if this user is a website owner or admin
+  const v = await verifyDiscordUser(user.id);
+  const isSiteOwner = v.isOwner === true;
+  const isSiteAdmin = v.plan === "empire" && v.verified;
+  const bypassAll = isSiteOwner || isSiteAdmin;
+
+  // Commands that require verified account (skip for site owner/admin)
   const requiresAuth = ["ai","ai-image","ai-code","ai-translate","ai-summarize","ai-creative","see-chats","clear-chats","orbitra-bump","orbitra-stats","orbitra-link","sync"];
-  if (requiresAuth.includes(commandName)) {
-    const v = await verifyDiscordUser(user.id);
+  if (requiresAuth.includes(commandName) && !bypassAll) {
     if (!v.verified) {
       return interaction.reply({ embeds: [em(null,{title:"Account Required",description:`You need a free Orbitra account to use this command.\n\nCreate one at: ${WEBSITE}/register\nThen link it with \`/verify\``,color:0xff6b6b,fields:[{name:"Step 1",value:`Create account at ${WEBSITE}/register`,inline:true},{name:"Step 2",value:"Use `/verify` to link",inline:true}]})], ephemeral: true });
     }
   }
 
-  // Plan check
-  const plan = await getServerPlan(guild.id);
+  // Plan check (skip for site owner/admin)
+  let plan = "free";
+  if (bypassAll) {
+    plan = "empire";
+  } else {
+    plan = await getServerPlan(guild.id);
+  }
   const cmdPlan = getCommandPlan(commandName);
   if (cmdPlan !== "free" && !hasPermission(plan, cmdPlan)) {
     return interaction.reply({ embeds: [planDenied(commandName, plan)], ephemeral: true });
@@ -375,13 +385,15 @@ async function handleCommand(interaction) {
         return interaction.reply({ embeds: [em(null,{title:"Orbitra Bot Commands",description:desc.slice(0,4096),color:p.color,footer:`${CMD.length} commands total`})], ephemeral: true });
       }
       case "plan": {
-        const p = PLANS[plan] || PLANS.free;
+        const displayPlan = bypassAll ? "empire" : plan;
+        const p = PLANS[displayPlan] || PLANS.free;
+        const extra = bypassAll ? "\n\n**Website owner/admin — full access to all commands.**" : "";
         const fields = PLAN_ORDER.map(pk => {
           const pc = PLANS[pk];
-          const active = pk === plan;
+          const active = pk === displayPlan;
           return { name: `${active ? "> " : ""}${pc.name}${active ? " (Current)" : ""}`, value: `AI: ${pc.ai === -1 ? "Unlimited" : pc.ai+"/day"} | ${pc.cmds.length + 19} commands`, inline: true };
         });
-        return interaction.reply({ embeds: [em(null,{title:"Server Plan",description:`Current plan: **${p.name}**\n\nUpgrade at: ${WEBSITE}/pricing\n\nThe server owner must have the plan. Everyone in the server can then use the commands.`,color:p.color,fields})], ephemeral: true });
+        return interaction.reply({ embeds: [em(null,{title:"Server Plan",description:`Current plan: **${p.name}**${extra}\n\nUpgrade at: ${WEBSITE}/pricing`,color:p.color,fields})], ephemeral: true });
       }
       case "help-premium": {
         const descs = {
@@ -503,9 +515,9 @@ async function handleCommand(interaction) {
         return interaction.reply({embeds:[em(null,{title:"Chats Cleared",description:"Your AI chat history has been cleared.",color:0x00ff88})],ephemeral:true});
       }
       case "verify": {
-        const v = await verifyDiscordUser(user.id);
         if (v.verified) {
-          return interaction.reply({embeds:[em(null,{title:"Already Verified",description:`Your Discord account is linked to Orbitra.\n\nPlan: **${v.plan || "free"}**\n\nManage your account: ${WEBSITE}/account`,color:0x00ff88})],ephemeral:true});
+          const roleText = v.isOwner ? "Website Owner" : v.plan === "empire" ? "Empire Member" : "Verified User";
+          return interaction.reply({embeds:[em(null,{title:"Account Linked",description:`Your Discord account is linked to Orbitra.\n\n**Role:** ${roleText}\n**Plan:** ${v.plan || "free"}\n\nManage: ${WEBSITE}/account`,color:0x00ff88})],ephemeral:true});
         }
         return interaction.reply({embeds:[em(null,{title:"Link Your Account",description:`To link your Discord account to Orbitra:\n\n1. Create a free account at ${WEBSITE}/register\n2. Go to ${WEBSITE}/account\n3. Click "Link Discord"\n4. Come back and use \`/verify\` again`,color:0x7c3aed,fields:[{name:"Create Account",value:`${WEBSITE}/register`,inline:true},{name:"Link Discord",value:`${WEBSITE}/account`,inline:true}]})],ephemeral:true});
       }
