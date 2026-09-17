@@ -35,6 +35,19 @@ const WEBHOOK_SECRET = process.env.DISCORD_WEBHOOK_SECRET || "orbitra-sync-secre
 
 if (!TOKEN) { console.error("DISCORD_BOT_TOKEN not found."); process.exit(1); }
 
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
+  ],
+  partials: [Partials.Message, Partials.Channel, Partials.GuildMember],
+  rest: { timeout: 15000 },
+});
+
 const PLANS = {
   free:   { name: "Free",     color: 0x808080, ai: 5,  cmds: ["ping","help","serverinfo","userinfo","avatar","membercount","channels","roles","uptime","stats","8ball","coinflip","dice","random","quote","define","calculate","color","weather"] },
   starter:{ name: "Starter",  color: 0x00bfff, ai: 20, cmds: ["kick","ban","mute","unmute","warn","slowmode","lock","unlock","purge","nick","role-add","role-remove","timeout-log","afk","leaderboard","level"] },
