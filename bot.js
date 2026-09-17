@@ -88,7 +88,7 @@ const COMMANDS = [
     .setName("invite")
     .setDescription("Create a temporary invite link")
     .addIntegerOption((o) => o.setName("duration").setDescription("Duration in hours (default 24)").setMinValue(1).setMaxValue(720))
-    .addChannelOption((o) => o.setName("channel").setDescription("Channel to invite to").setChannelTypes(ChannelType.GuildText)),
+    .addChannelOption((o) => o.setName("channel").setDescription("Channel to invite to").addChannelTypes(ChannelType.GuildText)),
   new SlashCommandBuilder()
     .setName("poll")
     .setDescription("Create a poll")
