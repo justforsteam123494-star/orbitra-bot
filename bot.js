@@ -33,6 +33,7 @@ const PLAN_API = `${WEBSITE}/api/bot/plan`;
 const SYNC_API = `${WEBSITE}/api/bot/sync`;
 const HISTORY_API = `${WEBSITE}/api/bot/history`;
 const VERIFY_API = `${WEBSITE}/api/bot/verify`;
+const LINK_API = `${WEBSITE}/api/bot/link`;
 const WEBHOOK_SECRET = process.env.DISCORD_WEBHOOK_SECRET || "orbitra-sync-secret-2024";
 
 if (!TOKEN) { console.error("DISCORD_BOT_TOKEN not found."); process.exit(1); }
@@ -207,6 +208,14 @@ async function linkDiscordAccount(discordId, email) {
   } catch { return { ok: false, error: "Failed to link." }; }
 }
 
+async function getLinkUrl() {
+  try {
+    const raw = await httpPost(LINK_API, {});
+    const data = JSON.parse(raw);
+    return data.url || null;
+  } catch { return null; }
+}
+
 async function syncStats(guild) {
   try {
     const gd = await new Promise((res, rej) => {
@@ -333,7 +342,7 @@ const CMD = [
   new SlashCommandBuilder().setName("see-chats").setDescription("View your AI chat history"),
   new SlashCommandBuilder().setName("clear-chats").setDescription("Clear your AI chat history"),
   new SlashCommandBuilder().setName("verify").setDescription("Link your Orbitra account to the bot"),
-  new SlashCommandBuilder().setName("link-discord").setDescription("Link your Orbitra email to this Discord account").addStringOption(o=>o.setName("email").setDescription("Your Orbitra account email").setRequired(true)),
+  new SlashCommandBuilder().setName("link-discord").setDescription("Link your Discord account to Orbitra via OAuth"),
 ];
 
 // ── COMMAND HANDLER ──
@@ -527,17 +536,20 @@ async function handleCommand(interaction) {
           const roleText = v.isOwner ? "Website Owner" : v.plan === "empire" ? "Empire Member" : "Verified User";
           return interaction.reply({embeds:[em(null,{title:"Account Linked",description:`Your Discord account is linked to Orbitra.\n\n**Role:** ${roleText}\n**Plan:** ${v.plan || "free"}\n\nManage: ${WEBSITE}/account`,color:0x00ff88})],ephemeral:true});
         }
-        return interaction.reply({embeds:[em(null,{title:"Link Your Account",description:`Use \`/link-discord\` with your Orbitra email to link your account.`,color:0x7c3aed})],ephemeral:true});
+        await interaction.deferReply({ephemeral:true});
+        const linkUrl = await getLinkUrl();
+        if (linkUrl) {
+          return interaction.editReply({embeds:[em(null,{title:"Link Your Account",description:`Click below to sign in with Discord on Orbitra. This will automatically link your account.\n\n**No email needed** — just authorize with your Discord account and you're set!`,color:0x7c3aed,fields:[{name:"Link Account",value:`[Click here to link](${linkUrl})`,inline:true}]})]});
+        }
+        return interaction.editReply({embeds:[em(null,{title:"Link Your Account",description:`Go to ${WEBSITE}/login and sign in with Discord to link your account.`,color:0x7c3aed})]});
       }
       case "link-discord": {
         await interaction.deferReply({ephemeral:true});
-        const email = interaction.options.getString("email").trim().toLowerCase();
-        const result = await linkDiscordAccount(user.id, email);
-        if (result.verified || result.ok) {
-          const roleText = result.isOwner ? "Website Owner" : result.plan === "empire" ? "Empire Member" : "Verified User";
-          return interaction.editReply({embeds:[em(null,{title:"Account Linked!",description:`Your Discord account is now linked to Orbitra.\n\n**Email:** ${email}\n**Role:** ${roleText}\n**Plan:** ${result.plan || "free"}\n\nYou can now use all commands.`,color:0x00ff88})]});
+        const linkUrl2 = await getLinkUrl();
+        if (linkUrl2) {
+          return interaction.editReply({embeds:[em(null,{title:"Link Your Account",description:`Click below to sign in with Discord on Orbitra. This will automatically link your account.\n\n**No email needed** — just authorize with your Discord account and you're set!`,color:0x7c3aed,fields:[{name:"Link Account",value:`[Click here to link](${linkUrl2})`,inline:true}]})]});
         }
-        return interaction.editReply({embeds:[em(null,{title:"Link Failed",description:`No Orbitra account found with email **${email}**.\n\nCreate one at: ${WEBSITE}/register`,color:0xff6b6b})]});
+        return interaction.editReply({embeds:[em(null,{title:"Link Your Account",description:`Go to ${WEBSITE}/login and sign in with Discord to link your account.`,color:0x7c3aed})]});
       }
       // Pro
       case "announce": { if(!member.permissions.has(PermissionFlagsBits.ManageMessages))return interaction.reply({embeds:[em(null,{title:"Error",description:"Need Manage Messages permission.",color:0xff6b6b})],ephemeral:true});const ch=interaction.options.getChannel("channel"),t=interaction.options.getString("title"),m=interaction.options.getString("message"),c=interaction.options.getString("color")||"#7c3aed";await ch.send({embeds:[new EmbedBuilder().setTitle(t).setDescription(m).setColor(parseInt(c.replace("#",""),16)||0x7c3aed).setFooter({text:`Announcement by ${user.tag}`}).setTimestamp()]});return interaction.reply({embeds:[em(null,{title:"Announcement Sent",description:`Sent to <#${ch.id}>`,color:0x00ff88})],ephemeral:true}); }
