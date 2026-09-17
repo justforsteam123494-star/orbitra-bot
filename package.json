@@ -1,0 +1,11 @@
+{
+  "name": "orbitra-bot-hosting",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0"
+  }
+}
